@@ -25,7 +25,7 @@
 ##ENV JAVA_HOME=/usr/lib/jvm/default-jvm
 ##ENV PATH=$PATH:/usr/lib/jvm/default-jvm/bin
 ###----------------------
-FROM amazoncorretto:22-alpine
+FROM amazoncorretto:23-alpine
 
 # Now BFG stuff
 ## Sourced from https://rtyley.github.io/bfg-repo-cleaner/
