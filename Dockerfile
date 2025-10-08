@@ -1,4 +1,4 @@
-FROM amazoncorretto:23-alpine
+FROM amazoncorretto:25-alpine
 
 ## Sourced from https://rtyley.github.io/bfg-repo-cleaner/
 ENV BFG_VERSION="1.14.0"
