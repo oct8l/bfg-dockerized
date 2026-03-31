@@ -93,7 +93,7 @@ jobs:
           run: docker pull ghcr.io/oct8l/bfg-dockerized:"$GITHUB_RUN_ID"
 
         - name: Run Trivy for HIGH,CRITICAL CVEs and report (blocking)
-          uses: aquasecurity/trivy-action@master
+          uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
           with:
             image-ref: ghcr.io/oct8l/bfg-dockerized:${{ github.run_id }}
             exit-code: 0
