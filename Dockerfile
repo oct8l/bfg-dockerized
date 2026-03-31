@@ -1,8 +1,8 @@
 FROM amazoncorretto:25.0.2-alpine@sha256:afb37b0939cf8e627e7a18569b661cd3470611e65639d128f7a709d65615482e
 
 ## Sourced from https://rtyley.github.io/bfg-repo-cleaner/
-ENV BFG_VERSION="1.14.0"
-ENV BFG_CHECKSUM="1a75e9390541f4b55d9c01256b361b815c1e0a263e2fb3d072b55c2911ead0b7"
+ENV BFG_VERSION="1.15.0"
+ENV BFG_CHECKSUM="dfe2885adc2916379093f02a80181200536856c9a987bf21c492e452adefef7a"
 ENV HOME="/home/bfg"
 
 RUN apk --no-cache upgrade && \
