@@ -1,4 +1,4 @@
-FROM amazoncorretto:25.0.2-alpine@sha256:afb37b0939cf8e627e7a18569b661cd3470611e65639d128f7a709d65615482e
+FROM amazoncorretto:25.0.2-alpine@sha256:29fb372e1090a314688d0105870559369f8481ad18826e1c2367eab67e6eca4b
 
 ## Sourced from https://rtyley.github.io/bfg-repo-cleaner/
 ENV BFG_VERSION="1.15.0"
