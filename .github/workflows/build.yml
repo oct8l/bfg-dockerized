@@ -211,3 +211,61 @@ jobs:
 
       - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}
+
+  hadolint:
+    name: Hadolint
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/hadolint.yml
+    permissions:
+      contents: read
+
+  shellcheck:
+    name: ShellCheck
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/shellcheck.yml
+    permissions:
+      contents: read
+
+  pr-ci-gate:
+    name: PR CI Gate
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs:
+      - build-test-image
+      - test-integration
+      - scan-image
+      - build-and-push-docker-image
+      - hadolint
+      - shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Verify required jobs succeeded
+        env:
+          BUILD_RESULT: ${{ needs.build-test-image.result }}
+          INTEGRATION_RESULT: ${{ needs.test-integration.result }}
+          SCAN_RESULT: ${{ needs.scan-image.result }}
+          FINAL_IMAGE_RESULT: ${{ needs.build-and-push-docker-image.result }}
+          HADOLINT_RESULT: ${{ needs.hadolint.result }}
+          SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
+        run: |
+          failures=0
+
+          for result in \
+            "Build test images:$BUILD_RESULT" \
+            "Integration tests:$INTEGRATION_RESULT" \
+            "Security scans:$SCAN_RESULT" \
+            "Final image build:$FINAL_IMAGE_RESULT" \
+            "Hadolint:$HADOLINT_RESULT" \
+            "ShellCheck:$SHELLCHECK_RESULT"
+          do
+            name=${result%%:*}
+            status=${result#*:}
+            echo "$name: $status"
+
+            if [[ "$status" != "success" ]]; then
+              failures=1
+            fi
+          done
+
+          exit "$failures"

@@ -1,0 +1,21 @@
+name: ShellCheck
+
+on:
+  push:
+    branches:
+      - main
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: Lint shell scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Run ShellCheck
+        run: find . -name '*.sh' -not -path '*/.*' -print0 | xargs -0 shellcheck
