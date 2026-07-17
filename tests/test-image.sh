@@ -6,7 +6,18 @@ image="${1:?usage: tests/test-image.sh IMAGE}"
 workspace="$(mktemp -d)"
 
 cleanup() {
-  rm -rf -- "$workspace"
+  exit_code=$?
+
+  docker run --rm \
+    --user root \
+    --entrypoint sh \
+    --volume "$workspace:/workspace" \
+    "$image" \
+    -c 'chmod -R a+rwX /workspace' \
+    >/dev/null 2>&1 || true
+  rm -rf -- "$workspace" || true
+
+  return "$exit_code"
 }
 trap cleanup EXIT
 
