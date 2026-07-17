@@ -4,6 +4,7 @@ set -euo pipefail
 
 image="${1:?usage: tests/test-image.sh IMAGE}"
 workspace="$(mktemp -d)"
+passed_tests=0
 
 cleanup() {
   exit_code=$?
@@ -21,6 +22,27 @@ cleanup() {
 }
 trap cleanup EXIT
 
+github_group_start() {
+  local title="$1"
+
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    echo "::group::$title"
+  fi
+}
+
+github_group_end() {
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    echo "::endgroup::"
+  fi
+}
+
+pass_test() {
+  local name="$1"
+
+  ((passed_tests += 1))
+  echo "PASS: $name"
+}
+
 fail() {
   echo "FAIL: $*" >&2
   return 1
@@ -29,6 +51,7 @@ fail() {
 setup_case() {
   local name="$1"
 
+  case_name="$name"
   case_dir="$workspace/$name"
   source_repo="$case_dir/source"
   mirror_repo="$case_dir/repo.git"
@@ -56,10 +79,20 @@ mirror_fixture() {
 }
 
 run_bfg() {
-  docker run --rm \
+  local exit_code
+
+  github_group_start "BFG output: $case_name"
+  if docker run --rm \
     --volume "$case_dir:/home/bfg/workspace" \
     "$image" \
-    "$@" repo.git
+    "$@" repo.git; then
+    exit_code=0
+  else
+    exit_code=$?
+  fi
+  github_group_end
+
+  return "$exit_code"
 }
 
 assert_repo_valid() {
@@ -129,6 +162,8 @@ test_image_contract() {
     test "$PWD" = /home/bfg/workspace
     test -r /home/bfg/bfg.jar
   '
+
+  pass_test "image contract"
 }
 
 test_safe_rewrite() {
@@ -165,6 +200,7 @@ test_safe_rewrite() {
   assert_no_path_history credential.json
   assert_no_reachable_text "super-secret"
   assert_repo_valid
+  pass_test "protected historical rewrite"
 }
 
 test_protected_head() {
@@ -190,6 +226,7 @@ test_protected_head() {
   assert_ref_content refs/heads/main credential.json "super-secret"
   assert_ref_content refs/heads/main keep.txt "keep me"
   assert_repo_valid
+  pass_test "default current-content protection"
 }
 
 test_unprotected_rewrite() {
@@ -217,6 +254,7 @@ test_unprotected_rewrite() {
   assert_no_path_history credential.json
   assert_no_reachable_text "super-secret"
   assert_repo_valid
+  pass_test "unprotected current-content rewrite"
 }
 
 test_replace_text() {
@@ -243,6 +281,7 @@ test_replace_text() {
   assert_ref_content refs/heads/main keep.txt "keep me"
   assert_no_reachable_text "super-secret"
   assert_repo_valid
+  pass_test "sensitive-text replacement"
 }
 
 test_strip_large_blobs() {
@@ -264,6 +303,7 @@ test_strip_large_blobs() {
   assert_ref_content refs/heads/main small.txt "small file"
   assert_no_path_history large.bin
   assert_repo_valid
+  pass_test "large-blob stripping"
 }
 
 test_glob_delete_across_refs() {
@@ -315,6 +355,7 @@ test_glob_delete_across_refs() {
   assert_no_path_history feature.log
   assert_no_reachable_text "discard-"
   assert_repo_valid
+  pass_test "multi-ref glob and folder deletion"
 }
 
 test_image_contract
@@ -324,3 +365,5 @@ test_unprotected_rewrite
 test_replace_text
 test_strip_large_blobs
 test_glob_delete_across_refs
+
+echo "SUMMARY: $passed_tests image integration scenarios passed"
