@@ -21,69 +21,205 @@ cleanup() {
 }
 trap cleanup EXIT
 
-usage="$(docker run --rm "$image" 2>&1)"
-grep -F "bfg " <<<"$usage"
-grep -F -- "--delete-files" <<<"$usage"
+fail() {
+  echo "FAIL: $*" >&2
+  return 1
+}
 
-uid="$(docker run --rm --entrypoint sh "$image" -c 'id -u')"
-if ((uid == 0)); then
-  echo "expected the image to run as a non-root user" >&2
-  exit 1
-fi
+setup_case() {
+  local name="$1"
 
-docker run --rm --entrypoint sh "$image" -c '
-  test "$HOME" = /home/bfg
-  test "$PWD" = /home/bfg/workspace
-  test -r /home/bfg/bfg.jar
-'
+  case_dir="$workspace/$name"
+  source_repo="$case_dir/source"
+  mirror_repo="$case_dir/repo.git"
 
-git init --initial-branch=main "$workspace/source"
-git -C "$workspace/source" config user.name "CI"
-git -C "$workspace/source" config user.email "ci@example.invalid"
-git -C "$workspace/source" config commit.gpgsign false
+  mkdir -p "$case_dir"
+  git init --quiet --initial-branch=main "$source_repo"
+  git -C "$source_repo" config user.name "CI"
+  git -C "$source_repo" config user.email "ci@example.invalid"
+  git -C "$source_repo" config commit.gpgsign false
+}
 
-printf '%s\n' "super-secret" >"$workspace/source/credential.json"
-printf '%s\n' "keep me" >"$workspace/source/keep.txt"
-git -C "$workspace/source" add .
-git -C "$workspace/source" commit -m "Add test files"
+commit_fixture() {
+  local message="$1"
 
-git clone --mirror "$workspace/source" "$workspace/repo.git"
+  git -C "$source_repo" add -A
+  git -C "$source_repo" commit --quiet -m "$message"
+}
 
-# GitHub-hosted runners and the image use different UIDs. Make the fixture
-# writable so the image's non-root user can rewrite the mounted repository.
-chmod -R a+rwX "$workspace"
+mirror_fixture() {
+  git clone --quiet --mirror "$source_repo" "$mirror_repo"
 
-docker run --rm \
-  --volume "$workspace:/home/bfg/workspace" \
-  "$image" \
-  --no-blob-protection --delete-files credential.json repo.git
+  # GitHub-hosted runners and the image use different UIDs. Make the fixture
+  # writable so the image's non-root user can rewrite the mounted repository.
+  chmod -R a+rwX "$case_dir"
+}
 
-git --git-dir="$workspace/repo.git" fsck --full --no-dangling
+run_bfg() {
+  docker run --rm \
+    --volume "$case_dir:/home/bfg/workspace" \
+    "$image" \
+    "$@" repo.git
+}
 
-deleted_file_commits="$(
-  git --git-dir="$workspace/repo.git" \
-    log --all --format=%H -- credential.json
-)"
-if [[ -n "$deleted_file_commits" ]]; then
-  echo "credential.json remains in reachable history" >&2
-  exit 1
-fi
+assert_repo_valid() {
+  git --git-dir="$mirror_repo" fsck --full --no-dangling
+}
 
-kept_content="$(
-  git --git-dir="$workspace/repo.git" \
-    show refs/heads/main:keep.txt
-)"
-if [[ "$kept_content" != "keep me" ]]; then
-  echo "unrelated file content changed during the rewrite" >&2
-  exit 1
-fi
+assert_ref_content() {
+  local ref="$1"
+  local path="$2"
+  local expected="$3"
+  local actual
 
-while IFS= read -r ref; do
-  if git --git-dir="$workspace/repo.git" grep -F "super-secret" "$ref"; then
-    echo "secret content remains reachable from $ref" >&2
-    exit 1
+  actual="$(git --git-dir="$mirror_repo" show "$ref:$path")"
+  [[ "$actual" == "$expected" ]] ||
+    fail "$ref:$path contained '$actual', expected '$expected'"
+}
+
+assert_ref_missing() {
+  local ref="$1"
+  local path="$2"
+
+  if git --git-dir="$mirror_repo" cat-file -e "$ref:$path" 2>/dev/null; then
+    fail "$path remains reachable from $ref"
   fi
-done < <(
-  git --git-dir="$workspace/repo.git" \
-    for-each-ref --format='%(refname)' refs/heads refs/tags
-)
+}
+
+assert_no_path_history() {
+  local path="$1"
+  local commits
+
+  commits="$(
+    git --git-dir="$mirror_repo" \
+      log --all --format=%H -- "$path"
+  )"
+  [[ -z "$commits" ]] || fail "$path remains in reachable history"
+}
+
+assert_no_reachable_text() {
+  local text="$1"
+  local ref
+
+  while IFS= read -r ref; do
+    if git --git-dir="$mirror_repo" grep -F "$text" "$ref"; then
+      fail "'$text' remains reachable from $ref"
+    fi
+  done < <(
+    git --git-dir="$mirror_repo" \
+      for-each-ref --format='%(refname)' refs/heads refs/tags
+  )
+}
+
+test_image_contract() {
+  local usage
+  local uid
+
+  echo "==> image contract"
+
+  usage="$(docker run --rm "$image" 2>&1)"
+  grep -F "bfg " <<<"$usage"
+  grep -F -- "--delete-files" <<<"$usage"
+
+  uid="$(docker run --rm --entrypoint sh "$image" -c 'id -u')"
+  ((uid != 0)) || fail "expected the image to run as a non-root user"
+
+  docker run --rm --entrypoint sh "$image" -c '
+    test "$HOME" = /home/bfg
+    test "$PWD" = /home/bfg/workspace
+    test -r /home/bfg/bfg.jar
+  '
+}
+
+test_safe_rewrite() {
+  local head_before
+  local head_after
+  local tree_before
+  local tree_after
+
+  echo "==> protected rewrite of historical content"
+  setup_case "safe-rewrite"
+
+  printf '%s\n' "super-secret" >"$source_repo/credential.json"
+  printf '%s\n' "keep me" >"$source_repo/keep.txt"
+  commit_fixture "Add historical credential"
+
+  git -C "$source_repo" rm --quiet credential.json
+  commit_fixture "Remove credential from current revision"
+  mirror_fixture
+
+  head_before="$(git --git-dir="$mirror_repo" rev-parse refs/heads/main)"
+  tree_before="$(git --git-dir="$mirror_repo" rev-parse 'refs/heads/main^{tree}')"
+
+  run_bfg --delete-files credential.json
+
+  head_after="$(git --git-dir="$mirror_repo" rev-parse refs/heads/main)"
+  tree_after="$(git --git-dir="$mirror_repo" rev-parse 'refs/heads/main^{tree}')"
+
+  [[ "$head_before" != "$head_after" ]] ||
+    fail "safe rewrite did not update history"
+  [[ "$tree_before" == "$tree_after" ]] ||
+    fail "safe rewrite changed the protected current tree"
+  assert_ref_missing refs/heads/main credential.json
+  assert_ref_content refs/heads/main keep.txt "keep me"
+  assert_no_path_history credential.json
+  assert_no_reachable_text "super-secret"
+  assert_repo_valid
+}
+
+test_protected_head() {
+  local head_before
+  local head_after
+
+  echo "==> current content remains protected by default"
+  setup_case "protected-head"
+
+  printf '%s\n' "super-secret" >"$source_repo/credential.json"
+  printf '%s\n' "keep me" >"$source_repo/keep.txt"
+  commit_fixture "Add current credential"
+  mirror_fixture
+
+  head_before="$(git --git-dir="$mirror_repo" rev-parse refs/heads/main)"
+
+  run_bfg --delete-files credential.json
+
+  head_after="$(git --git-dir="$mirror_repo" rev-parse refs/heads/main)"
+
+  [[ "$head_before" == "$head_after" ]] ||
+    fail "default protection unexpectedly changed the current commit"
+  assert_ref_content refs/heads/main credential.json "super-secret"
+  assert_ref_content refs/heads/main keep.txt "keep me"
+  assert_repo_valid
+}
+
+test_unprotected_rewrite() {
+  local head_before
+  local head_after
+
+  echo "==> unprotected rewrite of current content"
+  setup_case "unprotected-rewrite"
+
+  printf '%s\n' "super-secret" >"$source_repo/credential.json"
+  printf '%s\n' "keep me" >"$source_repo/keep.txt"
+  commit_fixture "Add current credential"
+  mirror_fixture
+
+  head_before="$(git --git-dir="$mirror_repo" rev-parse refs/heads/main)"
+
+  run_bfg --no-blob-protection --delete-files credential.json
+
+  head_after="$(git --git-dir="$mirror_repo" rev-parse refs/heads/main)"
+
+  [[ "$head_before" != "$head_after" ]] ||
+    fail "unprotected rewrite did not update the current commit"
+  assert_ref_missing refs/heads/main credential.json
+  assert_ref_content refs/heads/main keep.txt "keep me"
+  assert_no_path_history credential.json
+  assert_no_reachable_text "super-secret"
+  assert_repo_valid
+}
+
+test_image_contract
+test_safe_rewrite
+test_protected_head
+test_unprotected_rewrite
