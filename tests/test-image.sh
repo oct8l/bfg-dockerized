@@ -219,7 +219,56 @@ test_unprotected_rewrite() {
   assert_repo_valid
 }
 
+test_replace_text() {
+  echo "==> replace sensitive text"
+  setup_case "replace-text"
+
+  printf '%s\n' \
+    "password=super-secret" \
+    "mode=production" \
+    >"$source_repo/application.conf"
+  printf '%s\n' "keep me" >"$source_repo/keep.txt"
+  printf '%s\n' "super-secret" >"$case_dir/replacements.txt"
+  commit_fixture "Add configuration containing a secret"
+  mirror_fixture
+
+  run_bfg \
+    --no-blob-protection \
+    --replace-text replacements.txt
+
+  assert_ref_content \
+    refs/heads/main \
+    application.conf \
+    $'password=***REMOVED***\nmode=production'
+  assert_ref_content refs/heads/main keep.txt "keep me"
+  assert_no_reachable_text "super-secret"
+  assert_repo_valid
+}
+
+test_strip_large_blobs() {
+  echo "==> strip blobs above a size threshold"
+  setup_case "strip-large-blobs"
+
+  awk 'BEGIN { for (i = 0; i < 2048; i++) printf "x" }' \
+    >"$source_repo/large.bin"
+  printf '%s\n' "small file" >"$source_repo/small.txt"
+  commit_fixture "Add large and small files"
+  mirror_fixture
+  git --git-dir="$mirror_repo" repack -ad
+
+  run_bfg \
+    --no-blob-protection \
+    --strip-blobs-bigger-than 1K
+
+  assert_ref_missing refs/heads/main large.bin
+  assert_ref_content refs/heads/main small.txt "small file"
+  assert_no_path_history large.bin
+  assert_repo_valid
+}
+
 test_image_contract
 test_safe_rewrite
 test_protected_head
 test_unprotected_rewrite
+test_replace_text
+test_strip_large_blobs
