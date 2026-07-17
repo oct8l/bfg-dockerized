@@ -87,9 +87,6 @@ jobs:
     permissions:
       contents: read
 
-    env:
-      DOCKER_DEFAULT_PLATFORM: ${{ matrix.platform }}
-
     steps:
 
       - name: Checkout git repo
@@ -108,6 +105,8 @@ jobs:
         run: docker load --input "${{ runner.temp }}/${{ matrix.artifact }}.tar"
 
       - name: Test built image
+        env:
+          DOCKER_DEFAULT_PLATFORM: ${{ matrix.platform }}
         run: ./tests/test-image.sh "${{ env.TEST_IMAGE }}"
 
   scan-image:
