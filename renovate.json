@@ -2,5 +2,17 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "github>c-gerke/renovate-config"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update versions declared by Renovate comments in the Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: extractVersion=(?<extractVersion>\\S+))? versioning=(?<versioning>\\S+)\\s+ENV [A-Z][A-Z0-9_]*=\"(?<currentValue>[^\"]+)\""
+      ]
+    }
   ]
 }
