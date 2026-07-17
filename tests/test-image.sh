@@ -266,9 +266,61 @@ test_strip_large_blobs() {
   assert_repo_valid
 }
 
+test_glob_delete_across_refs() {
+  local ref
+
+  echo "==> delete matching files and folders across refs"
+  setup_case "glob-delete"
+
+  mkdir -p \
+    "$source_repo/cache" \
+    "$source_repo/nested/cache"
+  printf '%s\n' "discard-root" >"$source_repo/root.log"
+  printf '%s\n' "discard-cache" >"$source_repo/cache/generated.tmp"
+  printf '%s\n' "discard-nested" >"$source_repo/nested/debug.log"
+  printf '%s\n' "discard-deep-cache" >"$source_repo/nested/cache/data.tmp"
+  printf '%s\n' "keep me" >"$source_repo/keep.txt"
+  commit_fixture "Add files on main"
+
+  git -C "$source_repo" tag before-feature
+  git -C "$source_repo" checkout --quiet -b feature
+  printf '%s\n' "discard-feature" >"$source_repo/feature.log"
+  printf '%s\n' "feature content" >"$source_repo/feature.txt"
+  commit_fixture "Add files on feature"
+  git -C "$source_repo" checkout --quiet main
+  mirror_fixture
+
+  run_bfg \
+    --no-blob-protection \
+    --delete-files '*.log' \
+    --delete-folders cache
+
+  for ref in \
+    refs/heads/main \
+    refs/heads/feature \
+    refs/tags/before-feature; do
+    assert_ref_missing "$ref" root.log
+    assert_ref_missing "$ref" cache/generated.tmp
+    assert_ref_missing "$ref" nested/debug.log
+    assert_ref_missing "$ref" nested/cache/data.tmp
+    assert_ref_content "$ref" keep.txt "keep me"
+  done
+
+  assert_ref_missing refs/heads/feature feature.log
+  assert_ref_content refs/heads/feature feature.txt "feature content"
+  assert_no_path_history root.log
+  assert_no_path_history cache/generated.tmp
+  assert_no_path_history nested/debug.log
+  assert_no_path_history nested/cache/data.tmp
+  assert_no_path_history feature.log
+  assert_no_reachable_text "discard-"
+  assert_repo_valid
+}
+
 test_image_contract
 test_safe_rewrite
 test_protected_head
 test_unprotected_rewrite
 test_replace_text
 test_strip_large_blobs
+test_glob_delete_across_refs
