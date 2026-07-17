@@ -6,16 +6,21 @@ image="${1:?usage: tests/test-image.sh IMAGE}"
 workspace="$(mktemp -d)"
 passed_tests=0
 
-cleanup() {
-  exit_code=$?
+restore_permissions() {
+  local directory="$1"
 
   docker run --rm \
     --user root \
     --entrypoint sh \
-    --volume "$workspace:/workspace" \
+    --volume "$directory:/workspace" \
     "$image" \
-    -c 'chmod -R a+rwX /workspace' \
-    >/dev/null 2>&1 || true
+    -c 'chmod -R a+rwX /workspace'
+}
+
+cleanup() {
+  exit_code=$?
+
+  restore_permissions "$workspace" >/dev/null 2>&1 || true
   rm -rf -- "$workspace" || true
 
   return "$exit_code"
@@ -358,6 +363,44 @@ test_glob_delete_across_refs() {
   pass_test "multi-ref glob and folder deletion"
 }
 
+test_garbage_collection() {
+  local removed_blob
+
+  echo "==> prune unreachable data after a rewrite"
+  setup_case "garbage-collection"
+
+  printf '%s\n' "super-secret" >"$source_repo/credential.json"
+  printf '%s\n' "keep me" >"$source_repo/keep.txt"
+  commit_fixture "Add removable content"
+  mirror_fixture
+
+  removed_blob="$(
+    git --git-dir="$mirror_repo" \
+      rev-parse refs/heads/main:credential.json
+  )"
+
+  run_bfg --no-blob-protection --delete-files credential.json
+
+  assert_ref_missing refs/heads/main credential.json
+  assert_ref_content refs/heads/main keep.txt "keep me"
+  assert_no_path_history credential.json
+  assert_no_reachable_text "super-secret"
+
+  git --git-dir="$mirror_repo" cat-file -e "$removed_blob" ||
+    fail "removed blob disappeared before garbage collection"
+
+  restore_permissions "$case_dir"
+  git --git-dir="$mirror_repo" reflog expire --expire=now --all
+  git --git-dir="$mirror_repo" gc --quiet --prune=now --aggressive
+
+  if git --git-dir="$mirror_repo" cat-file -e "$removed_blob" 2>/dev/null; then
+    fail "removed blob still exists after garbage collection"
+  fi
+
+  assert_repo_valid
+  pass_test "garbage collection prunes unreachable data"
+}
+
 test_image_contract
 test_safe_rewrite
 test_protected_head
@@ -365,5 +408,6 @@ test_unprotected_rewrite
 test_replace_text
 test_strip_large_blobs
 test_glob_delete_across_refs
+test_garbage_collection
 
 echo "SUMMARY: $passed_tests image integration scenarios passed"
