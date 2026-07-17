@@ -15,6 +15,7 @@ on:
 
 env:
   TEST_IMAGE: local-bfg:test
+  DOCKER_BUILD_RECORD_RETENTION_DAYS: ${{ github.event_name == 'pull_request' && 1 || 0 }}
   FINAL_IMAGE_CACHE_FROM: |
     type=gha
     type=gha,scope=test-image-amd64
@@ -120,8 +121,10 @@ jobs:
         include:
           - platform: linux/amd64
             artifact: test-image-amd64
+            category: results
           - platform: linux/arm64
             artifact: test-image-arm64
+            category: trivy-arm64
 
     permissions:
       contents: read
@@ -157,7 +160,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: results-${{ matrix.artifact }}.sarif
-          category: trivy-${{ matrix.artifact }}
+          category: ${{ matrix.category }}
 
   build-and-push-docker-image:
     name: Build and Push Docker Image
