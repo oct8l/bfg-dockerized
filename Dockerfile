@@ -1,4 +1,4 @@
-FROM amazoncorretto:27-alpine@sha256:6ffff2e2aef32eb67002c443f4f66204248ea6cf042bc47e4f06dd9d48725e16
+FROM amazoncorretto:27-alpine@sha256:2a1963f0f2748128ca5ca81cc9ea69f26f1af4be481997afb04e8fb32f19aa4f
 
 ## Sourced from https://rtyley.github.io/bfg-repo-cleaner/
 # renovate: datasource=github-releases depName=rtyley/bfg-repo-cleaner extractVersion=^v(?<version>.+)$ versioning=semver
