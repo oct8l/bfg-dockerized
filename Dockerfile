@@ -4,7 +4,7 @@ FROM amazoncorretto:27-alpine@sha256:6ffff2e2aef32eb67002c443f4f66204248ea6cf042
 # renovate: datasource=github-releases depName=rtyley/bfg-repo-cleaner extractVersion=^v(?<version>.+)$ versioning=semver
 ENV BFG_VERSION="1.15.0"
 # renovate: datasource=repology depName=alpine_3_24/shadow versioning=apk
-ENV SHADOW_VERSION="4.18.0-r1"
+ENV SHADOW_VERSION="4.20.4-r0"
 ENV HOME="/home/bfg"
 
 RUN apk --no-cache upgrade && \
